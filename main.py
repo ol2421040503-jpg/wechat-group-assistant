@@ -9,7 +9,7 @@ from tkinter import ttk, messagebox, filedialog
 import threading
 import logging
 from datetime import datetime
-from typing import List, Optional
+from typing import List
 
 from database import Database
 from wechat import WeChatAutomation
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 class WeChatAssistantApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("微信群助手 v1.0")
+        self.root.title("微信群助手 v2.0")
         self.root.geometry("900x700")
         self.root.resizable(True, True)
 
@@ -40,7 +40,6 @@ class WeChatAssistantApp:
 
         # 状态变量
         self.current_group = tk.StringVar(value="")
-        self.selected_members = []
         self.is_running = False
         self.add_thread = None
 
@@ -76,7 +75,7 @@ class WeChatAssistantApp:
 
         ttk.Button(btn_frame, text="连接微信", command=self._connect_wechat).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="获取当前群", command=self._get_current_chat).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="刷新群成员", command=self._refresh_members).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="手动导入成员", command=self._import_members).pack(side=tk.LEFT, padx=5)
 
         # 群选择下拉框
         group_frame = ttk.Frame(info_frame)
@@ -152,6 +151,10 @@ class WeChatAssistantApp:
         self.interval_var = tk.IntVar(value=ADD_INTERVAL)
         ttk.Spinbox(settings_frame, from_=5, to=60, textvariable=self.interval_var, width=5).pack(side=tk.LEFT, padx=5)
 
+        ttk.Label(settings_frame, text="  |  备注:").pack(side=tk.LEFT, padx=5)
+        self.remark_var = tk.StringVar(value="你好，我是群里的小伙伴")
+        ttk.Entry(settings_frame, textvariable=self.remark_var, width=30).pack(side=tk.LEFT, padx=5)
+
         # 操作按钮
         btn_frame = ttk.Frame(action_frame)
         btn_frame.pack(side=tk.RIGHT)
@@ -167,10 +170,10 @@ class WeChatAssistantApp:
 
         # 日志区域
         log_frame = ttk.LabelFrame(self.root, text="操作日志", padding=5)
-        log_frame.pack(fill=tk.X, padx=10, pady=5, height=100)
+        log_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
         self.log_text = tk.Text(log_frame, height=4, font=('Consolas', 9))
-        self.log_text.pack(fill=tk.X, padx=5, pady=5)
+        self.log_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
         log_scroll = ttk.Scrollbar(log_frame, orient=tk.VERTICAL, command=self.log_text.yview)
         self.log_text.configure(yscrollcommand=log_scroll.set)
@@ -208,6 +211,7 @@ class WeChatAssistantApp:
         if self.wechat.connect():
             self.connection_label.config(text="🟢 已连接", foreground="green")
             self._log("✅ 微信连接成功")
+            self._log("💡 提示：请先截图保存按钮位置（搜索、添加、发送等）")
             self.add_all_btn.config(state='normal')
         else:
             self.connection_label.config(text="🔴 连接失败", foreground="red")
@@ -225,50 +229,29 @@ class WeChatAssistantApp:
         if chat_name:
             self.current_group.set(chat_name)
             self._log(f"✅ 获取到群聊: {chat_name}")
-
-            # 检查是否在列表中
-            groups = self.db.get_group_names()
-            if chat_name not in groups:
-                self._log(f"📋 新群聊，将创建数据记录")
-
             self._load_members()
         else:
-            self._log("⚠️ 未获取到群聊名称")
-            messagebox.showinfo("提示", "请确保已打开群聊窗口并点击群名查看群成员")
+            self._log("⚠️ 未获取到群聊名称，请确保已打开群聊")
+            messagebox.showinfo("提示", "请确保已打开群聊窗口")
 
-    def _refresh_members(self):
-        """刷新群成员"""
+    def _import_members(self):
+        """手动导入成员"""
         if not self.current_group.get():
             messagebox.showwarning("未选择群", "请先选择或获取群聊")
             return
 
-        if not self.wechat.is_connected:
-            messagebox.showwarning("未连接", "请先连接微信")
-            return
-
-        self._log("正在刷新群成员...")
-
-        # 打开群成员列表
-        if not self.wechat.open_group_members():
-            messagebox.showinfo("提示", "请手动点击群名进入群信息页面")
-            return
-
-        # 等待用户操作
-        if messagebox.askyesno("确认", "请确保群成员列表已打开，然后点击确定继续"):
-            members = self.wechat.get_group_members_list()
-
-            if members:
+        # 弹出对话框让用户输入成员列表
+        dialog = ImportMembersDialog(self.root, self.current_group.get())
+        if dialog.result:
+            names = [n.strip() for n in dialog.result.split('\n') if n.strip()]
+            if names:
                 group_name = self.current_group.get()
                 self.db.clear_group_members(group_name)
-
-                for name, wxid in members:
-                    self.db.add_member(group_name, name, wxid)
-
-                self._log(f"✅ 成功获取 {len(members)} 个群成员")
+                for name in names:
+                    self.db.add_member(group_name, name)
+                self._log(f"✅ 成功导入 {len(names)} 个成员")
                 self._load_members()
                 self._update_stats()
-            else:
-                self._log("⚠️ 未获取到群成员，请确保群成员列表已完全展开")
 
     def _on_group_selected(self, event=None):
         """群选择改变"""
@@ -389,6 +372,7 @@ class WeChatAssistantApp:
 
     def _add_worker(self, members: List[tuple]):
         """添加工作线程"""
+        import time
         group_name = self.current_group.get()
         interval = self.interval_var.get()
         success_count = 0
@@ -420,11 +404,12 @@ class WeChatAssistantApp:
             else:
                 self.db.record_add_result(member_name, member_name, "failed", error)
                 if error != "对方已是好友":
-                    self.db.update_member_added(group_name, member_name, False)
                     self.db.increment_daily_count(False)
                     self._log(f"  ❌ 添加失败: {error}")
                 else:
+                    self.db.update_member_added(group_name, member_name, True)
                     self._log(f"  ⚠️ {error}")
+                    success_count += 1
 
             # 更新UI
             self.root.after(0, self._update_stats)
@@ -464,10 +449,44 @@ class WeChatAssistantApp:
         self.root.destroy()
 
 
+class ImportMembersDialog:
+    """导入成员对话框"""
+
+    def __init__(self, parent, group_name):
+        self.result = None
+
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title(f"导入成员 - {group_name}")
+        self.dialog.geometry("400x400")
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+
+        # 说明
+        ttk.Label(self.dialog, text="每行一个成员名称：").pack(pady=10)
+
+        # 文本框
+        self.text = tk.Text(self.dialog, width=40, height=15, font=('Consolas', 10))
+        self.text.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+
+        # 按钮
+        btn_frame = ttk.Frame(self.dialog)
+        btn_frame.pack(pady=10)
+
+        ttk.Button(btn_frame, text="确定", command=self._ok).pack(side=tk.LEFT, padx=10)
+        ttk.Button(btn_frame, text="取消", command=self._cancel).pack(side=tk.LEFT, padx=10)
+
+        self.dialog.wait_window()
+
+    def _ok(self):
+        self.result = self.text.get("1.0", tk.END)
+        self.dialog.destroy()
+
+    def _cancel(self):
+        self.dialog.destroy()
+
+
 def main():
     """主函数"""
-    import time
-
     root = tk.Tk()
 
     # 设置样式

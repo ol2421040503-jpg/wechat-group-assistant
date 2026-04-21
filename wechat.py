@@ -1,86 +1,93 @@
 # -*- coding: utf-8 -*-
 """
 微信群助手 - 微信自动化操作模块
-基于 uiautomation2 实现 Windows UI 自动化
+基于 pyautogui + pywin32 实现 Windows 自动化
 """
 
 import time
 import logging
+import os
+import json
 from typing import List, Optional, Tuple
 
 try:
-    import uiautomation as auto
+    import pyautogui
+    import win32gui
+    import win32con
+    import win32api
 except ImportError:
-    auto = None
+    pyautogui = None
 
 from config import ADD_INTERVAL
 
 logger = logging.getLogger(__name__)
 
+# 禁用 pyautogui 的安全特性
+if pyautogui:
+    pyautogui.FAILSAFE = True
+    pyautogui.PAUSE = 0.3
+
 
 class WeChatAutomation:
     def __init__(self):
-        self.wechat_window = None
+        self.wechat_hwnd = None
         self.is_connected = False
+        self.screenshot_folder = "screenshots"
+
+        # 创建截图保存目录
+        if not os.path.exists(self.screenshot_folder):
+            os.makedirs(self.screenshot_folder)
+
+        # 按钮截图保存位置
+        self.button_screenshots = {
+            "search": f"{self.screenshot_folder}/btn_search.png",
+            "add_friend": f"{self.screenshot_folder}/btn_add.png",
+            "send": f"{self.screenshot_folder}/btn_send.png",
+            "contact_info": f"{self.screenshot_folder}/btn_contact_info.png",
+        }
 
     def connect(self) -> bool:
         """连接微信窗口"""
-        if auto is None:
-            logger.error("uiautomation2 未安装，请运行: pip install uiautomation2")
+        if pyautogui is None:
+            logger.error("请安装依赖: pip install pyautogui pywin32 Pillow")
             return False
 
         try:
-            # 查找微信主窗口
-            self.wechat_window = auto.WindowControl(Name="微信", ClassName="WeChatMainWndForPC")
-            if self.wechat_window.Exists():
+            # 查找微信窗口
+            self.wechat_hwnd = win32gui.FindWindow("Qt51514QWindowIcon", "微信")
+
+            if self.wechat_hwnd:
+                # 确保窗口可见
+                win32gui.ShowWindow(self.wechat_hwnd, win32con.SW_RESTORE)
+                win32gui.SetForegroundWindow(self.wechat_hwnd)
+                time.sleep(0.5)
+
                 self.is_connected = True
                 logger.info("成功连接到微信窗口")
                 return True
             else:
                 logger.warning("未找到微信窗口，请确保微信已启动")
                 return False
+
         except Exception as e:
             logger.error(f"连接微信失败: {e}")
             return False
 
     def get_current_chat_name(self) -> Optional[str]:
-        """获取当前聊天窗口的名称（群名或好友名）"""
+        """获取当前聊天窗口的名称"""
         if not self.is_connected:
             return None
 
         try:
-            # 聊天窗口的标题通常在顶部
-            chat_name_control = self.wechat_window.TextControl(
-                foundIndex=1,
-                Name=lambda n: n and len(n) > 1
-            )
+            # 获取窗口标题
+            title = win32gui.GetWindowText(self.wechat_hwnd)
+            logger.info(f"窗口标题: {title}")
 
-            # 尝试多种方式获取聊天名称
-            # 方法1: 查找标题栏
-            title_control = self.wechat_window.Control(
-                ControlType=auto.ControlType.TitleBarControl,
-                foundIndex=1
-            )
-            if title_control.Exists(:
-                name = title_control.Name
-                if name and name != "微信":
-                    return name
-
-            # 方法2: 查找聊天信息区域
-            chat_info_control = self.wechat_window.TextControl(
-                SubName="聊天信息",
-                foundIndex=1
-            )
-            if chat_info_control.Exists(:
-                parent = chat_info_control.GetParentControl()
-                if parent:
-                    # 向上查找群名
-                    for _ in range(5):
-                        parent = parent.GetParentControl()
-                        if parent and parent.Name:
-                            name = parent.Name.strip()
-                            if name and len(name) > 1 and name != "微信":
-                                return name
+            # 微信窗口标题格式通常是 "群名 - 微信" 或 "联系人昵称"
+            if " - " in title:
+                return title.split(" - ")[0].strip()
+            elif title and title != "微信":
+                return title
 
             return None
 
@@ -88,35 +95,66 @@ class WeChatAutomation:
             logger.error(f"获取聊天名称失败: {e}")
             return None
 
+    def click_on_screen(self, image_path: str, confidence: float = 0.8) -> bool:
+        """在屏幕上查找并点击图片"""
+        if not os.path.exists(image_path):
+            logger.warning(f"截图不存在: {image_path}")
+            return False
+
+        try:
+            location = pyautogui.locateOnScreen(image_path, confidence=confidence)
+            if location:
+                center = pyautogui.center(location)
+                pyautogui.click(center.x, center.y)
+                logger.info(f"点击位置: {center}")
+                return True
+            else:
+                logger.warning(f"未找到图片: {image_path}")
+                return False
+        except Exception as e:
+            logger.error(f"点击失败: {e}")
+            return False
+
+    def find_on_screen(self, image_path: str, confidence: float = 0.8):
+        """在屏幕上查找图片位置"""
+        if not os.path.exists(image_path):
+            return None
+
+        try:
+            return pyautogui.locateOnScreen(image_path, confidence=confidence)
+        except Exception as e:
+            logger.error(f"查找图片失败: {e}")
+            return None
+
+    def type_text(self, text: str, interval: float = 0.05):
+        """输入文本"""
+        try:
+            pyautogui.write(text, interval=interval)
+        except Exception as e:
+            logger.error(f"输入文本失败: {e}")
+
+    def press_key(self, key: str):
+        """按键"""
+        try:
+            pyautogui.press(key)
+        except Exception as e:
+            logger.error(f"按键失败: {e}")
+
     def open_group_members(self) -> bool:
         """打开群成员列表"""
         if not self.is_connected:
             return False
 
         try:
-            # 查找聊天窗口顶部的群名/联系人名称并点击
-            # 通常需要先点击群名进入群信息页面
+            # 查找聊天信息按钮
+            btn_path = self.button_screenshots.get("contact_info")
+            if btn_path and os.path.exists(btn_path):
+                if self.click_on_screen(btn_path):
+                    time.sleep(1)
+                    logger.info("已点击群信息按钮")
+                    return True
 
-            # 方式1: 点击聊天标题
-            chat_title = self.wechat_window.ButtonControl(
-                Name="聊天信息",
-                foundIndex=1
-            )
-
-            if not chat_title.Exists(:
-                # 尝试查找更多聊天信息按钮
-                chat_title = self.wechat_window.HyperlinkControl(
-                    SubName="聊天信息",
-                    foundIndex=1
-                )
-
-            if chat_title.Exists(:
-                chat_title.Click()
-                time.sleep(1)
-                logger.info("已点击群成员按钮")
-                return True
-
-            logger.warning("未找到群成员按钮，请手动点击群名进入群信息")
+            logger.warning("未找到群信息按钮截图，请先截图保存")
             return False
 
         except Exception as e:
@@ -124,207 +162,89 @@ class WeChatAutomation:
             return False
 
     def get_group_members_list(self) -> List[Tuple[str, str]]:
-        """
-        获取群成员列表
-        返回: [(备注名/昵称, 微信号/ID), ...]
-        """
+        """获取群成员列表 - 需要手动截图识别"""
         if not self.is_connected:
             return []
 
-        members = []
-
-        try:
-            # 等待群成员列表加载
-            time.sleep(1)
-
-            # 查找群成员列表区域
-            # 通常是一个 ListControl 或 多个 ListItemControl
-
-            # 方式1: 查找成员列表容器
-            member_list = self.wechat_window.ListControl(
-                foundIndex=1
-            )
-
-            if not member_list.Exists(:
-                # 尝试滚动查找
-                scroll_control = self.wechat_window.ScrollViewerControl(
-                    foundIndex=1
-                )
-                if scroll_control.Exists(:
-                    member_list = scroll_control
-
-            # 遍历所有成员项
-            if member_list.Exists(:
-                # 获取所有成员名称
-                member_items = member_list.GetChildren()
-
-                for item in member_items:
-                    try:
-                        # 尝试获取成员名称
-                        name = None
-                        wxid = None
-
-                        # 获取控件的名称
-                        if item.Name and len(item.Name.strip()) > 0:
-                            name = item.Name.strip()
-
-                        # 查找子控件获取更多信息
-                        texts = item.Texts()
-                        if texts:
-                            for text in texts:
-                                if text and len(text.strip()) > 0:
-                                    if not name:
-                                        name = text.strip()
-                                    # 判断是否是微信号（通常是wxid开头或纯数字）
-                                    if text.startswith('wxid') or text.isdigit():
-                                        wxid = text.strip()
-
-                        if name:
-                            # 过滤掉非成员的项（如搜索框、按钮等）
-                            if name not in ['搜索', '成员', '群聊名称', '群二维码', '群公告']:
-                                members.append((name, wxid or ""))
-
-                    except Exception as e:
-                        continue
-
-            logger.info(f"获取到 {len(members)} 个群成员")
-            return members
-
-        except Exception as e:
-            logger.error(f"获取群成员列表失败: {e}")
-            return []
+        # 由于微信界面复杂性，建议用户手动复制成员列表
+        # 这里返回一个空列表，用户需要手动导入
+        logger.info("建议手动导入群成员列表")
+        return []
 
     def search_and_add(self, member_name: str) -> Tuple[bool, str]:
-        """
-        搜索并添加好友
-        返回: (是否成功, 错误信息)
-        """
+        """搜索并添加好友"""
         if not self.is_connected:
             return False, "未连接到微信"
 
         try:
-            # 返回到聊天窗口
-            # 按 Escape 或点击返回
-            self._press_escape()
-            time.sleep(0.5)
-
             # 点击搜索框
-            search_control = self.wechat_window.EditControl(
-                SubName="搜索",
-                foundIndex=1
-            )
-
-            if not search_control.Exists(:
-                search_control = self.wechat_window.EditControl(
-                    Name="搜索",
-                    foundIndex=1
-                )
-
-            if search_control.Exists(:
-                search_control.Click()
+            search_btn_path = self.button_screenshots.get("search")
+            if search_btn_path and os.path.exists(search_btn_path):
+                if not self.click_on_screen(search_btn_path):
+                    logger.warning("未找到搜索按钮")
+            else:
+                # 备用：使用快捷键
+                self.press_key('f')
                 time.sleep(0.3)
 
-                # 输入搜索内容
-                search_control.TypeText(member_name, interval=0.05)
-                time.sleep(1)
+            time.sleep(0.5)
 
-                # 从搜索结果中选择
-                # 查找联系人列表
-                contact_list = self.wechat_window.ListControl(
-                    foundIndex=1
-                )
+            # 输入搜索内容
+            self.type_text(member_name, interval=0.05)
+            time.sleep(1)
 
-                if contact_list.Exists(:
-                    # 点击第一个搜索结果
-                    first_contact = contact_list.GetFirstChildControl()
-                    if first_contact:
-                        first_contact.Click()
-                        time.sleep(1)
+            # 点击第一个搜索结果（需要用户手动设置截图）
+            # 查找添加按钮
+            add_btn_path = self.button_screenshots.get("add_friend")
+            if add_btn_path and os.path.exists(add_btn_path):
+                if self.click_on_screen(add_btn_path):
+                    time.sleep(0.5)
+                    # 点击发送
+                    send_btn_path = self.button_screenshots.get("send")
+                    if send_btn_path and os.path.exists(send_btn_path):
+                        self.click_on_screen(send_btn_path)
+                    return True, ""
 
-                        # 点击添加按钮
-                        return self._click_add_button()
-
-            # 如果找不到搜索结果，尝试其他方式
-            self._press_escape()
-            return False, "未找到联系人"
+            logger.warning("未找到添加按钮截图，请先截图保存")
+            return False, "请手动添加"
 
         except Exception as e:
             logger.error(f"添加好友失败: {e}")
-            self._press_escape()
             return False, str(e)
-
-    def _click_add_button(self) -> Tuple[bool, str]:
-        """点击添加按钮"""
-        try:
-            # 查找添加按钮
-            add_button = self.wechat_window.ButtonControl(
-                SubName="添加",
-                foundIndex=1
-            )
-
-            if not add_button.Exists(:
-                add_button = self.wechat_window.ButtonControl(
-                    Name="添加",
-                    foundIndex=1
-                )
-
-            if add_button.Exists(:
-                add_button.Click()
-                time.sleep(0.5)
-
-                # 查找发送验证消息按钮
-                send_button = self.wechat_window.ButtonControl(
-                    SubName="发送",
-                    foundIndex=1
-                )
-
-                if send_button.Exists(:
-                    send_button.Click()
-                    logger.info("添加请求已发送")
-                    return True, ""
-
-                return True, "请手动发送验证消息"
-
-            # 可能已经添加过了
-            already_added = self.wechat_window.TextControl(
-                SubName="已添加",
-                foundIndex=1
-            )
-
-            if already_added.Exists(:
-                return False, "对方已是好友"
-
-            return False, "未找到添加按钮"
-
-        except Exception as e:
-            return False, str(e)
-
-    def _press_escape(self):
-        """按 Escape 键返回"""
-        try:
-            self.wechat_window.SendKeys('{Escape}', interval=0.1)
-        except Exception:
-            pass
 
     def get_wechat_focused(self):
         """确保微信窗口获得焦点"""
-        if self.wechat_window and self.wechat_window.Exists(:
-            self.wechat_window.SetFocus()
-            time.sleep(0.3)
+        if self.wechat_hwnd:
+            try:
+                win32gui.SetForegroundWindow(self.wechat_hwnd)
+                time.sleep(0.3)
+            except Exception:
+                pass
 
 
 def test_connection() -> bool:
     """测试连接"""
-    if auto is None:
-        print("❌ uiautomation2 未安装")
-        print("请运行: pip install uiautomation2")
+    if pyautogui is None:
+        print("❌ 请安装依赖")
+        print("请运行: pip install pywin32 pyautogui Pillow")
         return False
 
     try:
-        # 查找微信窗口
-        wechat_window = auto.WindowControl(Name="微信", ClassName="WeChatMainWndForPC")
-        if wechat_window.Exists(:
-            print("✅ 成功连接到微信")
+        wechat_hwnd = win32gui.FindWindow("Qt51514QWindowIcon", "微信")
+        if wechat_hwnd:
+            # 获取窗口标题
+            title = win32gui.GetWindowText(wechat_hwnd)
+            print(f"✅ 成功连接到微信")
+            print(f"   窗口标题: {title}")
+
+            # 截图保存提示
+            print("\n📸 建议截图保存按钮位置:")
+            print("   1. 搜索按钮 - 保存为 screenshots/btn_search.png")
+            print("   2. 添加按钮 - 保存为 screenshots/btn_add.png")
+            print("   3. 发送按钮 - 保存为 screenshots/btn_send.png")
+            print("   4. 群信息按钮 - 保存为 screenshots/btn_contact_info.png")
+            print("\n   截图越清晰，识别越准确！")
+
             return True
         else:
             print("❌ 未找到微信窗口")
