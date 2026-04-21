@@ -32,7 +32,7 @@ class WeChatAutomation:
         try:
             # 查找微信主窗口
             self.wechat_window = auto.WindowControl(Name="微信", ClassName="WeChatMainWndForPC")
-            if self.wechat_window.Exists(timeout=5):
+            if self.wechat_window.Exists():
                 self.is_connected = True
                 logger.info("成功连接到微信窗口")
                 return True
@@ -61,7 +61,7 @@ class WeChatAutomation:
                 ControlType=auto.ControlType.TitleBarControl,
                 foundIndex=1
             )
-            if title_control.Exists(timeout=1):
+            if title_control.Exists(:
                 name = title_control.Name
                 if name and name != "微信":
                     return name
@@ -71,7 +71,7 @@ class WeChatAutomation:
                 SubName="聊天信息",
                 foundIndex=1
             )
-            if chat_info_control.Exists(timeout=1):
+            if chat_info_control.Exists(:
                 parent = chat_info_control.GetParentControl()
                 if parent:
                     # 向上查找群名
@@ -103,14 +103,14 @@ class WeChatAutomation:
                 foundIndex=1
             )
 
-            if not chat_title.Exists(timeout=2):
+            if not chat_title.Exists(:
                 # 尝试查找更多聊天信息按钮
                 chat_title = self.wechat_window.HyperlinkControl(
                     SubName="聊天信息",
                     foundIndex=1
                 )
 
-            if chat_title.Exists(timeout=2):
+            if chat_title.Exists(:
                 chat_title.Click()
                 time.sleep(1)
                 logger.info("已点击群成员按钮")
@@ -145,16 +145,16 @@ class WeChatAutomation:
                 foundIndex=1
             )
 
-            if not member_list.Exists(timeout=3):
+            if not member_list.Exists(:
                 # 尝试滚动查找
                 scroll_control = self.wechat_window.ScrollViewerControl(
                     foundIndex=1
                 )
-                if scroll_control.Exists(timeout=2):
+                if scroll_control.Exists(:
                     member_list = scroll_control
 
             # 遍历所有成员项
-            if member_list.Exists(timeout=2):
+            if member_list.Exists(:
                 # 获取所有成员名称
                 member_items = member_list.GetChildren()
 
@@ -214,13 +214,13 @@ class WeChatAutomation:
                 foundIndex=1
             )
 
-            if not search_control.Exists(timeout=2):
+            if not search_control.Exists(:
                 search_control = self.wechat_window.EditControl(
                     Name="搜索",
                     foundIndex=1
                 )
 
-            if search_control.Exists(timeout=2):
+            if search_control.Exists(:
                 search_control.Click()
                 time.sleep(0.3)
 
@@ -234,7 +234,7 @@ class WeChatAutomation:
                     foundIndex=1
                 )
 
-                if contact_list.Exists(timeout=3):
+                if contact_list.Exists(:
                     # 点击第一个搜索结果
                     first_contact = contact_list.GetFirstChildControl()
                     if first_contact:
@@ -262,13 +262,13 @@ class WeChatAutomation:
                 foundIndex=1
             )
 
-            if not add_button.Exists(timeout=2):
+            if not add_button.Exists(:
                 add_button = self.wechat_window.ButtonControl(
                     Name="添加",
                     foundIndex=1
                 )
 
-            if add_button.Exists(timeout=2):
+            if add_button.Exists(:
                 add_button.Click()
                 time.sleep(0.5)
 
@@ -278,7 +278,7 @@ class WeChatAutomation:
                     foundIndex=1
                 )
 
-                if send_button.Exists(timeout=2):
+                if send_button.Exists(:
                     send_button.Click()
                     logger.info("添加请求已发送")
                     return True, ""
@@ -291,7 +291,7 @@ class WeChatAutomation:
                 foundIndex=1
             )
 
-            if already_added.Exists(timeout=1):
+            if already_added.Exists(:
                 return False, "对方已是好友"
 
             return False, "未找到添加按钮"
@@ -308,7 +308,7 @@ class WeChatAutomation:
 
     def get_wechat_focused(self):
         """确保微信窗口获得焦点"""
-        if self.wechat_window and self.wechat_window.Exists(timeout=1):
+        if self.wechat_window and self.wechat_window.Exists(:
             self.wechat_window.SetFocus()
             time.sleep(0.3)
 
@@ -323,7 +323,7 @@ def test_connection() -> bool:
     try:
         # 查找微信窗口
         wechat_window = auto.WindowControl(Name="微信", ClassName="WeChatMainWndForPC")
-        if wechat_window.Exists(timeout=5):
+        if wechat_window.Exists(:
             print("✅ 成功连接到微信")
             return True
         else:
