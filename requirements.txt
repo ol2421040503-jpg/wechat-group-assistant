@@ -1,0 +1,3 @@
+# WeChat Assistant - 依赖列表
+uiautomation2>=2.0.0
+pyinstaller>=5.0.0
